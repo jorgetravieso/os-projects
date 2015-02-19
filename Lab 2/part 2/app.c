@@ -20,24 +20,22 @@ void LeaveConferenceRoom(int id);
 void QuestionStart(int id);
 void QuestionDone(int id);
 
-long online = 0;
+//long online = 0;
+int speaker_created = 0;
 int reporter_id;
 
 
-pthread_mutex_t room_mutext;
-pthread_cond_t room_condition_cv;
+//pthread_mutex_t room_mutext;
+//pthread_cond_t room_condition_cv;
 
 
-
-
-pthread_mutex_t question;
 sem_t room_sem;
 
-pthread_mutex_t speak_mutex;
-pthread_cond_t speak_condition_cv;
+pthread_mutex_t reporter_mutex;
+pthread_mutex_t floor_mutex;
+pthread_cond_t floor_condition;
 
 
-pthread_mutex 
 
 
 
@@ -69,16 +67,19 @@ int main(int argc, char* argv[])
     
     printf("You entered [%lu] for number of reporters, and [%lu] for max capacity!\n", num_reporters, room_capacity);
 
-    pthread_mutex_init(&speak_mutex, NULL);
-    pthread_mutex_init(&question, NULL);
-    pthread_cond_init (&speak_condition_cv, NULL);
+    pthread_mutex_init(&floor_mutex, NULL);
+    pthread_mutex_init(&reporter_mutex, NULL);
+    pthread_cond_init (&floor_condition, NULL);
+
     sem_init(&room_sem, 0, room_capacity);
 
     pthread_t reporters_threads[num_reporters];
-    pthread_t speaker_thread[1];
+    pthread_t speaker_thread;
 
 
-    pthread_create(&speaker_thread[0], NULL, Speaker, NULL);    
+    pthread_create(&speaker_thread, NULL, Speaker, NULL);      
+    speaker_created = 1;
+
     int i = 0;
     for(i; i < num_reporters; i++) // create the reporters
         pthread_create(&reporters_threads[i], NULL, Reporter, i);
@@ -89,9 +90,9 @@ int main(int argc, char* argv[])
         pthread_join(reporters_threads[i], NULL);
 
 
-    sem_destroy(&room_sem);
+    //sem_destroy(&room_sem);
     
-    return 1;
+    return 0;
 }
 
 
@@ -99,14 +100,15 @@ int main(int argc, char* argv[])
 void * Speaker()
 {
 
-    pthread_mutex_lock(&speak_mutex);
+    pthread_mutex_lock(&floor_mutex);
     while(1){
-        pthread_cond_wait(&speak_condition_cv, &speak_mutex);
-        AnswerStart(reporter_id);
-        AnswerDone(reporter_id);
+
+        AnswerStart();
+        AnswerDone();
+        
     }
-    pthread_mutex_unlock(&speak_mutex);
-    pthread_exit(NULL);
+   //pthread_mutex_unlock(&floor_mutex);
+   //pthread_exit(NULL);
     
 }
 
@@ -115,44 +117,41 @@ void * Reporter(void *p)
     int id = (int)p;
     int questions = (id % 4) + 2;
 
-    
-
     EnterConferenceRoom(id);
     
     int i;
     for(i = 0; i < questions; i++)
     {
-        pthread_mutex_lock(&question);
-        reporter_id = id;
-
         QuestionStart(id);
-        
-        pthread_cond_signal(&speak_condition_cv);
-        usleep(100);
         QuestionDone(id);
-        pthread_mutex_unlock(&question);
+       
     }
-    
-
     LeaveConferenceRoom(id);
     
 }
 
-void AnswerStart(int id)
+void AnswerStart()
 {
-    printf("Speaker starts to answer question for reporter %d\n", id);
+
+    if(!speaker_created){
+        pthread_cond_signal(&floor_condition);
+    }
+    pthread_cond_wait(&floor_condition, &floor_mutex);
+
+    printf("Speaker starts to answer question for reporter %d\n", reporter_id);
 }
 
-void AnswerDone(int id)
+void AnswerDone()
 {
-    printf("Speaker is done with answer for reporter %d\n", id);
+    printf("Speaker is done with answer for reporter %d\n", reporter_id);
+    pthread_cond_signal(&floor_condition);
 }
 
 //ok
 void EnterConferenceRoom(int id)
 { 
-     sem_wait(&room_sem);
-     printf("Reporter %d enters the conference room.\n", id);
+    sem_wait(&room_sem);
+    printf("Reporter %d enters the conference room.\n", id);
 }
 
 //ok
@@ -164,11 +163,19 @@ void LeaveConferenceRoom(int id)
 
 void QuestionStart(int id)
 {
+    pthread_mutex_lock(&reporter_mutex);
     printf("Reporter %d asks a question.\n", id);
+    reporter_id = id;
+    pthread_mutex_lock(&floor_mutex);
+    pthread_cond_signal(&floor_condition);
+    pthread_cond_wait(&floor_condition, &floor_mutex);
+
 }
 
 void QuestionDone(int id)  
 {
-    printf("Reporter %d is satisfied.\n", id);
+     pthread_mutex_unlock(&floor_mutex);
+     printf("Reporter %d is satisfied.\n", id);
+     pthread_mutex_unlock(&reporter_mutex);
 }
 
