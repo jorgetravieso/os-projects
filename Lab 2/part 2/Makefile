@@ -1,4 +1,4 @@
 all:
-	gcc app.c -lpthread -w -o app
+	gcc jorge.c -pthread -o jorge
 clean:
-	rm test jorge guido
+	rm test jorge guido app yordan

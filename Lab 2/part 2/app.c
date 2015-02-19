@@ -1,5 +1,3 @@
-// COMPILE LIKE THIS: gcc guido.c -lpthread -lrt -w -o guido
-
 #define _XOPEN_SOURCE 600
 
 #include <stdio.h>
@@ -21,20 +19,19 @@ void QuestionStart(int id);
 void QuestionDone(int id);
 
 //long online = 0;
-int speaker_created = 0;
+int first = 0;
 int reporter_id;
 
 
-//pthread_mutex_t room_mutext;
-//pthread_cond_t room_condition_cv;
 
 
 sem_t room_sem;
 
 pthread_mutex_t reporter_mutex;
 pthread_mutex_t floor_mutex;
-pthread_cond_t floor_condition;
 
+pthread_cond_t floor_condition;
+pthread_cond_t enter_leave_condition;
 
 
 
@@ -70,6 +67,7 @@ int main(int argc, char* argv[])
     pthread_mutex_init(&floor_mutex, NULL);
     pthread_mutex_init(&reporter_mutex, NULL);
     pthread_cond_init (&floor_condition, NULL);
+    pthread_cond_init (&enter_leave_condition, NULL);
 
     sem_init(&room_sem, 0, room_capacity);
 
@@ -78,7 +76,7 @@ int main(int argc, char* argv[])
 
 
     pthread_create(&speaker_thread, NULL, Speaker, NULL);      
-    speaker_created = 1;
+    first = 1;
 
     int i = 0;
     for(i; i < num_reporters; i++) // create the reporters
@@ -102,13 +100,14 @@ void * Speaker()
 
     pthread_mutex_lock(&floor_mutex);
     while(1){
-
+        pthread_cond_wait(&floor_condition, &floor_mutex);
         AnswerStart();
         AnswerDone();
+        pthread_cond_signal(&floor_condition);
         
     }
-   //pthread_mutex_unlock(&floor_mutex);
-   //pthread_exit(NULL);
+   pthread_mutex_unlock(&floor_mutex);
+   pthread_exit(NULL);
     
 }
 
@@ -116,14 +115,18 @@ void * Reporter(void *p)
 {
     int id = (int)p;
     int questions = (id % 4) + 2;
-
     EnterConferenceRoom(id);
+    
+
+    
     
     int i;
     for(i = 0; i < questions; i++)
     {
         QuestionStart(id);
         QuestionDone(id);
+        if(i != questions - 1)
+           usleep(30);                     
        
     }
     LeaveConferenceRoom(id);
@@ -133,30 +136,40 @@ void * Reporter(void *p)
 void AnswerStart()
 {
 
-    if(!speaker_created){
-        pthread_cond_signal(&floor_condition);
-    }
-    pthread_cond_wait(&floor_condition, &floor_mutex);
-
     printf("Speaker starts to answer question for reporter %d\n", reporter_id);
 }
 
 void AnswerDone()
 {
     printf("Speaker is done with answer for reporter %d\n", reporter_id);
-    pthread_cond_signal(&floor_condition);
+    
 }
 
 //ok
 void EnterConferenceRoom(int id)
 { 
+    
+ 
+    
     sem_wait(&room_sem);
-    printf("Reporter %d enters the conference room.\n", id);
+    
+    pthread_mutex_lock(&floor_mutex);
+    if(first){
+        first = false;
+    }
+    else{    
+        pthread_cond_wait(&enter_leave_condition, &floor_mutex);
+        printf("Reporter %d enters the conference room.\n", id);
+    }
+    pthread_mutex_unlock(&floor_mutex);
+    
+    
 }
 
 //ok
 void LeaveConferenceRoom(int id)
 {
+    //pthread_cond_wait(&enter_leave_condition, &floor_mutex);
     printf("Reporter %d leaves the conference room.\n", id);
     sem_post(&room_sem);
 }
@@ -164,9 +177,9 @@ void LeaveConferenceRoom(int id)
 void QuestionStart(int id)
 {
     pthread_mutex_lock(&reporter_mutex);
+    pthread_mutex_lock(&floor_mutex);
     printf("Reporter %d asks a question.\n", id);
     reporter_id = id;
-    pthread_mutex_lock(&floor_mutex);
     pthread_cond_signal(&floor_condition);
     pthread_cond_wait(&floor_condition, &floor_mutex);
 
@@ -174,8 +187,9 @@ void QuestionStart(int id)
 
 void QuestionDone(int id)  
 {
-     pthread_mutex_unlock(&floor_mutex);
+    
      printf("Reporter %d is satisfied.\n", id);
+     pthread_mutex_unlock(&floor_mutex);
      pthread_mutex_unlock(&reporter_mutex);
+     pthread_cond_signal(&enter_leave_condition);
 }
-
