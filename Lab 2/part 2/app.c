@@ -154,13 +154,16 @@ void EnterConferenceRoom(int id)
     sem_wait(&room_sem);
     
     pthread_mutex_lock(&floor_mutex);
-    if(first){
+  
+    
+    if(!first){
+        pthread_cond_wait(&enter_leave_condition, &floor_mutex);
+    }
+    else{
         first = false;
     }
-    else{    
-        pthread_cond_wait(&enter_leave_condition, &floor_mutex);
-        printf("Reporter %d enters the conference room.\n", id);
-    }
+    
+    printf("Reporter %d enters the conference room.\n", id);
     pthread_mutex_unlock(&floor_mutex);
     
     
